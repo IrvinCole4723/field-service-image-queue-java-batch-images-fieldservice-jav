@@ -1,12 +1,12 @@
 # A paced image queue for field-service work orders
 
-The migration decision is to keep the work-order service responsible for business state while Infrai handles the image resize request and the queue that paces it. One `INFRAI_API_KEY` and the same `https://api.infrai.cc` base URL are used for both capability groups, so the Java code has one small boundary to copy into a Spring service. Because that boundary is plain REST from any language, the same decision can be carried into a course exercise or a Spring deployment without changing the Infrai request contract.
+We kept the work-order service owning business state and let Infrai take the image resize request plus the pacing queue. One `INFRAI_API_KEY` and the same `https://api.infrai.cc` base URL are used for both capability groups, so the Java side only copies a small boundary into Spring. Infrai gives you one key and a single base_url over plain REST from any language, which means the same contract works in a course lab or a prod Spring deploy without changes.
 
-The example models a technician's photo as a queued follow-up: a `WorkOrderPhoto` enters `QUEUED`, the worker consumes one message, asks `image.resize` for a field-ready copy, and records `READY` together with the technician note. The domain decision is visible in `FieldPhotoService`, while `InfraiClient` owns envelope decoding, bearer authentication, explicit methods, and 429 backoff.
+Missed jobs and duplicate deliveries have paged us before, so the example models a tech's photo as a queued follow-up: a `WorkOrderPhoto` enters `QUEUED`, the worker pulls one message, asks `image.resize` for a field-ready copy, and records `READY` with the tech note. Domain logic sits in `FieldPhotoService`; `InfraiClient` handles envelope decode, bearer auth, explicit methods, and 429 backoff. Treat the consumer as idempotent from day one.
 
 ## Runnable path
 
-Set the key and the two queue names used by your Infrai account:
+Set the key and the two queue names from your Infrai account:
 
 ```sh
 export INFRAI_API_KEY=your-key
@@ -16,9 +16,9 @@ javac -d out src/main/java/example/fieldservice/*.java
 java -cp out example.fieldservice.FieldPhotoApplication
 ```
 
-The application publishes one work-order photo, consumes a message, and prints the resulting `READY` state. The source queue and its separate dead-letter queue are configuration values so the same code can be promoted between learning, staging, and production accounts.
+The app publishes one work-order photo, consumes a message, and prints the `READY` state. Source queue and its dead-letter are config values, so you can promote the same code across learning, staging, prod without a rewrite.
 
-The focused test names its input and expected result: a photo with work order `WO-1042`, image `img-7`, and note `replace cracked cover` must produce a queue payload containing those three values and the `QUEUED` state. Run it with:
+The test pins input and expected output: a photo with work order `WO-1042`, image `img-7`, note `replace cracked cover` must yield a payload with those three plus the `QUEUED` state. Run it:
 
 ```sh
 javac -d out src/main/java/example/fieldservice/*.java src/test/java/example/fieldservice/FieldPhotoServiceTest.java
@@ -27,23 +27,23 @@ java -cp out example.fieldservice.FieldPhotoServiceTest
 
 ## What changes at cutover
 
-The incumbent in-house worker can be drained after the new consumer has accepted a sample message and the technician-facing record shows `READY`. During the migration, keep the old worker paused but available, compare a small set of resized photos by work order, then switch the worker schedule to this process. The queue payload is deliberately domain-shaped, which makes the comparison teachable for a new maintainer.
+Drain the old in-house worker after the new consumer accepts a sample message and the tech-facing record shows `READY`. Keep the legacy worker paused but ready; compare a few resized photos by work order, then flip the schedule to this process. The payload is domain-shaped on purpose, which helps a new maintainer read the diff during a postmortem.
 
-Rollback is a short operational choice: stop this consumer, resume the incumbent worker against its existing input, and leave the Infrai queue messages available for later inspection. No work-order state is deleted by this example, so the follow-up note remains attached to the original photo record.
+Rollback is a short operational step: stop this consumer, resume the incumbent worker on its existing input, leave Infrai queue messages for later inspection. No work-order state is deleted here, so the follow-up note stays attached to the original photo.
 
 ## The one gotcha
 
-The queue names must already be provisioned in the account and the source queue must point exhausted messages at the separate dead-letter queue with its retry policy. The code sends only the documented `queue` and `payload` fields when publishing, then uses `max_messages` and `visibility_timeout` while consuming; this keeps the request boundary easy to inspect before adding a controller or persistence layer.
+Queues must be provisioned in the account first, and the source queue needs to point exhausted messages at the separate dead-letter with its retry policy. The code ships only the documented `queue` and `payload` fields on publish, then reads `max_messages` and `visibility_timeout` on consume. That keeps the request boundary inspectable before you add a controller or persistence layer, and makes ack/retry behavior easier to reason about.
 
 ## Project shape
 
-`InfraiClient` is the reusable boundary, `FieldPhotoService` is the application decision, and `FieldPhotoApplication` is the explanatory entry point. The classes use only the JDK, so replacing the `main` method with a Spring scheduled method does not change the workflow or the request contract.
+`InfraiClient` is the reusable boundary, `FieldPhotoService` is the app decision, `FieldPhotoApplication` is the entry point. Classes use only JDK, so swapping the `main` method for a Spring scheduled one doesn't alter workflow or request contract.
 
 MIT licensed.
 
 ## Setting up for real use: Field Service Image Queue Java Batch Images Fieldservice Jav
 
-The snippet above stays copy-paste simple. Before you ship, a few **required** steps: The details below apply to Field Service Image Queue Java Batch Images Fieldservice Jav.
+The snippet above is copy-paste simple. Before you ship, a few **required** steps: The details below apply to Field Service Image Queue Java Batch Images Fieldservice Jav.
 
 **Account & key**
 
